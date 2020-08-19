@@ -186,6 +186,7 @@
   - tilewalls
   - events
   - destroymechanism
+  - camera
   CanViewVar: true
   CanAdminPlace: true
   CanScript: true
