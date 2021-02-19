@@ -35,17 +35,19 @@ namespace Content.Server.GameObjects.Components.VendingMachines
 
         private bool _ejecting;
         private TimeSpan _animationDuration = TimeSpan.Zero;
-        private string _packPrototypeId = "";
+        private string _packPrototypeId = string.Empty;
+        private string _advertisementsId = string.Empty;
         private string? _description;
-        private string _spriteName = "";
+        private string _spriteName = string.Empty;
 
         private bool Powered => !Owner.TryGetComponent(out PowerReceiverComponent? receiver) || receiver.Powered;
         private bool _broken;
 
-        private string _soundVend = "";
-        private string _soundDeny = "";
+        private string _soundVend = string.Empty;
+        private string _soundDeny = string.Empty;
 
-        private CancellationTokenSource _adCancellationSource = new();
+        private readonly CancellationTokenSource _adCancellationSource = new();
+        private List<string> _advertisements = new();
         private const int MinAdWait = 1000;
         private const int MaxAdWait = 5000;
 
@@ -75,6 +77,7 @@ namespace Content.Server.GameObjects.Components.VendingMachines
             base.ExposeData(serializer);
 
             serializer.DataField(ref _packPrototypeId, "pack", string.Empty);
+            serializer.DataField(ref _advertisementsId, "ads", string.Empty);
             // Grabbed from: https://github.com/discordia-space/CEV-Eris/blob/f702afa271136d093ddeb415423240a2ceb212f0/sound/machines/vending_drop.ogg
             serializer.DataField(ref _soundVend, "soundVend", "/Audio/Machines/machine_vend.ogg");
             // Yoinked from: https://github.com/discordia-space/CEV-Eris/blob/35bbad6764b14e15c03a816e3e89aa1751660ba9/sound/machines/Custom_deny.ogg
@@ -83,29 +86,36 @@ namespace Content.Server.GameObjects.Components.VendingMachines
 
         private void InitializeFromPrototype()
         {
-            if (string.IsNullOrEmpty(_packPrototypeId)) { return; }
-            if (!_prototypeManager.TryIndex(_packPrototypeId, out VendingMachineInventoryPrototype packPrototype))
+            // Only load inventory if pack ID is defined and if we can get a prototype with this ID
+            if (!string.IsNullOrEmpty(_packPrototypeId) &&
+                _prototypeManager.TryIndex(_packPrototypeId, out VendingMachineInventoryPrototype packPrototype))
             {
-                return;
+                Owner.Name = packPrototype.Name;
+                _description = packPrototype.Description;
+                _animationDuration = TimeSpan.FromSeconds(packPrototype.AnimationDuration);
+                _spriteName = packPrototype.SpriteName;
+                if (!string.IsNullOrEmpty(_spriteName))
+                {
+                    var spriteComponent = Owner.GetComponent<SpriteComponent>();
+                    const string vendingMachineRSIPath = "Constructible/Power/VendingMachines/{0}.rsi";
+                    spriteComponent.BaseRSIPath = string.Format(vendingMachineRSIPath, _spriteName);
+                }
+
+                var inventory = new List<VendingMachineInventoryEntry>();
+                foreach (var (id, amount) in packPrototype.StartingInventory)
+                {
+                    inventory.Add(new VendingMachineInventoryEntry(id, amount));
+                }
+
+                Inventory = inventory;
             }
 
-            Owner.Name = packPrototype.Name;
-            _description = packPrototype.Description;
-            _animationDuration = TimeSpan.FromSeconds(packPrototype.AnimationDuration);
-            _spriteName = packPrototype.SpriteName;
-            if (!string.IsNullOrEmpty(_spriteName))
+            // Only load advertisements if advertisements ID is defined and if we can get a prototype with this ID
+            if (!string.IsNullOrEmpty(_advertisementsId) &&
+                _prototypeManager.TryIndex(_advertisementsId, out VendingMachineAdvertisementsPrototype adsPrototype))
             {
-                var spriteComponent = Owner.GetComponent<SpriteComponent>();
-                const string vendingMachineRSIPath = "Constructible/Power/VendingMachines/{0}.rsi";
-                spriteComponent.BaseRSIPath = string.Format(vendingMachineRSIPath, _spriteName);
+                _advertisements = adsPrototype.Advertisements;
             }
-
-            var inventory = new List<VendingMachineInventoryEntry>();
-            foreach(var (id, amount) in packPrototype.StartingInventory)
-            {
-                inventory.Add(new VendingMachineInventoryEntry(id, amount));
-            }
-            Inventory = inventory;
         }
 
         public override void Initialize()
@@ -151,12 +161,13 @@ namespace Content.Server.GameObjects.Components.VendingMachines
             // If broken, return and do not add new timer
             if (_broken) return;
 
-            // If unpowered, do not say advertisement but do add new timer
-            if (!Powered)
+            // If powered and we have advertisements, say advertisement
+            if (Powered && _advertisements.Count > 0)
             {
-                _chatManager.EntitySay(Owner, "Hi, I'm a vending machine");
+                _chatManager.EntitySay(Owner, _random.Pick(_advertisements));
             }
 
+            // Add new timer, even if unpowered
             AddAdvertisementTimer();
         }
 

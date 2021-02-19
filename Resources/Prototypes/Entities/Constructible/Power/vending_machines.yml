@@ -164,6 +164,7 @@
   components:
   - type: VendingMachine
     pack: Hot Drinks machine
+    ads: Hot Drinks machine ads
   - type: Sprite
     sprite: Constructible/Power/VendingMachines/coffee.rsi
     layers:
