@@ -50,6 +50,7 @@
     LayoutId: Vending
   - type: Anchorable
   - type: Pullable
+  - type: Speech
 
 - type: entity
   parent: VendingMachine

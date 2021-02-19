@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Content.Server.GameObjects.Components.Access;
 using Content.Server.GameObjects.Components.Power.ApcNetComponents;
+using Content.Server.Interfaces.Chat;
 using Content.Server.Utility;
 using Content.Shared.GameObjects.Components.VendingMachines;
 using Content.Shared.GameObjects.EntitySystems;
@@ -29,6 +31,7 @@ namespace Content.Server.GameObjects.Components.VendingMachines
     {
         [Dependency] private readonly IRobustRandom _random = default!;
         [Dependency] private readonly IPrototypeManager _prototypeManager = default!;
+        [Dependency] private readonly IChatManager _chatManager = default!;
 
         private bool _ejecting;
         private TimeSpan _animationDuration = TimeSpan.Zero;
@@ -41,6 +44,10 @@ namespace Content.Server.GameObjects.Components.VendingMachines
 
         private string _soundVend = "";
         private string _soundDeny = "";
+
+        private CancellationTokenSource _adCancellationSource = new();
+        private const int MinAdWait = 1000;
+        private const int MaxAdWait = 5000;
 
         [ViewVariables] private BoundUserInterface? UserInterface => Owner.GetUIOrNull(VendingMachineUiKey.Key);
 
@@ -116,6 +123,16 @@ namespace Content.Server.GameObjects.Components.VendingMachines
             }
 
             InitializeFromPrototype();
+
+            AddAdvertisementTimer();
+        }
+
+        public override void OnRemove()
+        {
+            _adCancellationSource.Cancel();
+            _adCancellationSource.Dispose();
+
+            base.OnRemove();
         }
 
         public override void HandleMessage(ComponentMessage message, IComponent? component)
@@ -127,6 +144,33 @@ namespace Content.Server.GameObjects.Components.VendingMachines
                     UpdatePower(powerChanged);
                     break;
             }
+        }
+
+        private void SayAdvertisement()
+        {
+            // If broken, return and do not add new timer
+            if (_broken) return;
+
+            // If unpowered, do not say advertisement but do add new timer
+            if (!Powered)
+            {
+                _chatManager.EntitySay(Owner, "Hi, I'm a vending machine");
+            }
+
+            AddAdvertisementTimer();
+        }
+
+        private void AddAdvertisementTimer()
+        {
+            // If advertising is cancelled, return and do not add a new timer
+            if (_adCancellationSource.IsCancellationRequested)
+            {
+                return;
+            }
+
+            // Generate random wait time, then create timer
+            var wait = _random.Next(MinAdWait, MaxAdWait);
+            Owner.SpawnTimer(wait, SayAdvertisement, _adCancellationSource.Token);
         }
 
         private void UpdatePower(PowerChangedMessage args)
@@ -248,6 +292,8 @@ namespace Content.Server.GameObjects.Components.VendingMachines
         {
             _broken = true;
             TrySetVisualState(VendingMachineVisualState.Broken);
+
+            _adCancellationSource.Cancel();
         }
 
         public enum Wires
